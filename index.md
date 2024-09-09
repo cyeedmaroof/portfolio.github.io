@@ -1,5 +1,5 @@
 ---
-title: /
+title: Maroof Mushtaq
 layout: home
 permalink: /
 ---
