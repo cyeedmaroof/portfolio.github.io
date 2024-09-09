@@ -4,7 +4,7 @@ remote_theme: b2a3e8/jekyll-theme-console
 title: Maruf's Portfolio
 header_pages:
  - index.md
- - about.md
+ # - about.md
 
 footer: 'follow us on <a href="https://twitter.com/">twitter</a>'
 
