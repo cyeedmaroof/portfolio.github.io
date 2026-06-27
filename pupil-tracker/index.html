@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Pupil Response Tracker</title>
+<style>
+  :root{
+    --bg:#0e0f13; --panel:#171922; --panel2:#1f222e; --line:#2b2f3d;
+    --text:#e8eaf0; --muted:#9aa0b0; --accent:#5b8cff; --good:#3ddc84;
+    --warn:#ffb454; --bad:#ff6b6b; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:22px 18px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:13.5px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 14px;letter-spacing:.2px}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .row{display:flex;gap:14px;flex-wrap:wrap}
+  .row > div{flex:1;min-width:150px}
+  input[type=number]{
+    width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:10px 12px;font-size:15px
+  }
+  .filebtn,.btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
+    background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:11px 16px;font-size:14px;font-weight:600;user-select:none;
+    transition:.15s border-color,.15s background
+  }
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:disabled{opacity:.45;cursor:not-allowed}
+  .btn:hover{border-color:var(--accent)}
+  input[type=file]{display:none}
+  .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:10px}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);margin-left:8px}
+  .preview{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  #overlay{border-radius:10px;border:1px solid var(--line);background:#000;width:220px;height:165px}
+  .stat{font-variant-numeric:tabular-nums}
+  .status{font-size:13px;color:var(--muted)}
+  .status b{color:var(--text)}
+  .quality{font-weight:700}
+  .q-good{color:var(--good)} .q-ok{color:var(--warn)} .q-bad{color:var(--bad)}
+
+  /* Fullscreen stimulus stage */
+  #stage{position:fixed;inset:0;background:#7f7f7f;display:none;align-items:center;justify-content:center;z-index:50}
+  #stage img{max-width:100%;max-height:100%;object-fit:contain}
+  #fixation{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:51;color:#111;font-size:48px;pointer-events:none}
+  #stageInfo{position:fixed;top:10px;left:0;right:0;text-align:center;color:#222;font-size:13px;z-index:52;display:none;font-weight:600}
+  #abort{position:fixed;top:10px;right:14px;z-index:53;display:none}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:8px;border-radius:6px;background:var(--panel2);overflow:hidden;min-width:60px}
+  .bar > i{display:block;height:100%}
+  .rank-img{width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--line);vertical-align:middle}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px}
+  .note{background:#1a1d27;border-left:3px solid var(--warn);padding:10px 14px;border-radius:8px;font-size:13px;color:#d8dbe6;margin-top:8px}
+  a{color:var(--accent)}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Pupil Response Tracker <span class="pill">webcam · prototype</span></h1>
+  <p class="sub">Shows each image for a set time while the camera measures your pupil size, then ranks the images by how much your pupils dilated.</p>
+
+  <div class="card" id="setupCard">
+    <h2>1 · Settings</h2>
+    <div class="row">
+      <div>
+        <label>Seconds per image</label>
+        <input type="number" id="dur" value="3" min="0.5" max="30" step="0.5">
+      </div>
+      <div>
+        <label>Rest (gray) between images, sec</label>
+        <input type="number" id="isi" value="2" min="0" max="20" step="0.5">
+      </div>
+      <div>
+        <label>Calibration baseline, sec</label>
+        <input type="number" id="calib" value="5" min="2" max="30" step="1">
+      </div>
+    </div>
+
+    <div style="margin-top:16px">
+      <label>Images to show</label>
+      <label class="filebtn" for="files">＋ Choose images (you can pick several)</label>
+      <input type="file" id="files" accept="image/*" multiple>
+      <div class="thumbs" id="thumbs"></div>
+      <div class="hint">Images stay on your device — nothing is uploaded. Try to use images of similar overall brightness (see caveat below).</div>
+    </div>
+  </div>
+
+  <div class="card" id="camCard">
+    <h2>2 · Camera &amp; detection check</h2>
+    <button class="btn" id="startCam">Enable camera</button>
+    <div class="preview hidden" id="previewBox" style="margin-top:14px">
+      <canvas id="overlay" width="220" height="165"></canvas>
+      <div>
+        <div class="status" id="detStatus">Initializing…</div>
+        <div class="status" style="margin-top:6px">Live pupil/iris ratio: <b class="stat" id="liveRatio">—</b></div>
+        <div class="status" style="margin-top:6px">Detection quality: <span class="quality q-bad" id="qual">no face</span></div>
+        <div class="hint">Green circle = iris, magenta = detected pupil. Sit close, face a soft even light source, avoid glare on glasses.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Run</h2>
+    <button class="btn primary" id="run" disabled>Start session ▶</button>
+    <span class="status" id="runHint" style="margin-left:10px">Add images and enable the camera first.</span>
+  </div>
+
+  <div class="card hidden" id="resultsCard">
+    <h2>Results — ranked by pupil dilation</h2>
+    <div id="resultsBody"></div>
+    <details style="margin-top:14px">
+      <summary>What do these numbers mean?</summary>
+      <div class="hint" style="margin-top:8px">
+        <b>Pupil/iris ratio</b> is the pupil diameter divided by the iris diameter — independent of how far you sit from the camera.
+        <b>Dilation %</b> compares each image's average ratio to your calibrated baseline. Positive = pupils larger than baseline (engagement/arousal or a darker image), negative = constricted (often a brighter image).
+        <b>Img brightness</b> is the average luminance of the image: because the pupillary light reflex is strong, big brightness differences between images can drown out emotional responses — compare images of similar brightness for the most meaningful results.
+      </div>
+    </details>
+  </div>
+
+  <div class="note">
+    <b>Honest caveats.</b> This is a fun prototype, not a medical or research instrument. Webcam pupil estimation is noisy and works best with good even lighting, a close face, and a decent camera. The pupil's reaction to screen brightness is far stronger than its reaction to emotion, so keep image brightness similar and treat differences cautiously. Brown eyes are harder (low pupil/iris contrast) — check the live overlay shows the magenta circle sitting on your actual pupil before trusting the numbers.
+  </div>
+
+  <p class="hint" style="margin-top:20px">Best on Chrome/Edge (desktop or Android). On iOS use Safari. Requires a secure (https) page — which GitHub Pages provides.</p>
+</div>
+
+<!-- Fullscreen stimulus stage -->
+<div id="stageInfo"></div>
+<button class="btn" id="abort">Stop ✕</button>
+<div id="stage"><img id="stageImg" alt=""></div>
+<div id="fixation">+</div>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/vision_bundle.mjs";
+
+// ---------- State ----------
+const els = {
+  dur: document.getElementById('dur'),
+  isi: document.getElementById('isi'),
+  calib: document.getElementById('calib'),
+  files: document.getElementById('files'),
+  thumbs: document.getElementById('thumbs'),
+  startCam: document.getElementById('startCam'),
+  previewBox: document.getElementById('previewBox'),
+  overlay: document.getElementById('overlay'),
+  detStatus: document.getElementById('detStatus'),
+  liveRatio: document.getElementById('liveRatio'),
+  qual: document.getElementById('qual'),
+  run: document.getElementById('run'),
+  runHint: document.getElementById('runHint'),
+  stage: document.getElementById('stage'),
+  stageImg: document.getElementById('stageImg'),
+  stageInfo: document.getElementById('stageInfo'),
+  fixation: document.getElementById('fixation'),
+  abort: document.getElementById('abort'),
+  resultsCard: document.getElementById('resultsCard'),
+  resultsBody: document.getElementById('resultsBody'),
+};
+
+let images = [];          // {url, name, brightness}
+let landmarker = null;
+let video = null;
+let octx = els.overlay.getContext('2d');
+let running = false;       // session running
+let aborted = false;
+let lastRatio = null;      // most recent measured pupil/iris ratio
+let lastBoxes = null;      // for overlay drawing
+let qualityScore = 0;      // rolling stability metric
+
+// Offscreen canvases for pupil CV
+const CROP = 100;
+const cropCanvas = document.createElement('canvas');
+cropCanvas.width = CROP; cropCanvas.height = CROP;
+const cctx = cropCanvas.getContext('2d', { willReadFrequently: true });
+
+// ---------- Image loading ----------
+els.files.addEventListener('change', async (e) => {
+  for (const f of e.target.files) {
+    const url = URL.createObjectURL(f);
+    const brightness = await imageBrightness(url);
+    images.push({ url, name: f.name, brightness });
+    const t = document.createElement('img');
+    t.src = url; els.thumbs.appendChild(t);
+  }
+  updateRunState();
+});
+
+function imageBrightness(url){
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement('canvas');
+      const w = c.width = 64, h = c.height = Math.max(1, Math.round(64*im.height/im.width));
+      const x = c.getContext('2d');
+      x.drawImage(im, 0, 0, w, h);
+      const d = x.getImageData(0,0,w,h).data;
+      let sum = 0;
+      for (let i=0;i<d.length;i+=4) sum += 0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];
+      res(sum/(d.length/4)/255); // 0..1
+    };
+    im.onerror = () => res(0.5);
+    im.src = url;
+  });
+}
+
+// ---------- Camera + model ----------
+els.startCam.addEventListener('click', async () => {
+  els.startCam.disabled = true;
+  els.startCam.textContent = 'Starting…';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video = document.createElement('video');
+    video.srcObject = stream; video.muted = true; video.playsInline = true;
+    await video.play();
+
+    els.detStatus.textContent = 'Loading face model…';
+    els.previewBox.classList.remove('hidden');
+
+    const fileset = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm");
+    landmarker = await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+        delegate: "GPU"
+      },
+      runningMode: "VIDEO",
+      numFaces: 1,
+      outputFaceBlendshapes: false,
+      outputFacialTransformationMatrixes: false
+    });
+
+    els.detStatus.innerHTML = 'Camera ready. <b>Look at the camera.</b>';
+    els.startCam.textContent = 'Camera on ✓';
+    requestAnimationFrame(loop);
+    updateRunState();
+  } catch (err) {
+    els.detStatus.textContent = 'Camera error: ' + err.message;
+    els.startCam.disabled = false;
+    els.startCam.textContent = 'Enable camera';
+  }
+});
+
+// Iris landmark indices (FaceLandmarker, 478 points)
+const LEFT  = [468,469,470,471,472];
+const RIGHT = [473,474,475,476,477];
+
+let lastVideoTime = -1;
+let qBuf = [];
+
+function loop(){
+  if (video && video.readyState >= 2 && landmarker){
+    const now = performance.now();
+    if (video.currentTime !== lastVideoTime){
+      lastVideoTime = video.currentTime;
+      const res = landmarker.detectForVideo(video, now);
+      processResult(res);
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+function processResult(res){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!res || !res.faceLandmarks || !res.faceLandmarks.length){
+    lastRatio = null; lastBoxes = null;
+    setQuality('no face', 'q-bad');
+    drawOverlay(null);
+    if (!running) els.liveRatio.textContent = '—';
+    return;
+  }
+  const lm = res.faceLandmarks[0];
+  const m = measureBothEyes(lm, vw, vh);
+  drawOverlay(m);
+  if (m && m.ratio){
+    lastRatio = m.ratio;
+    if (!running) els.liveRatio.textContent = m.ratio.toFixed(3);
+    // stability-based quality
+    qBuf.push(m.ratio); if (qBuf.length > 30) qBuf.shift();
+    const mean = qBuf.reduce((a,b)=>a+b,0)/qBuf.length;
+    const sd = Math.sqrt(qBuf.reduce((a,b)=>a+(b-mean)**2,0)/qBuf.length);
+    const cv = sd/mean;
+    if (qBuf.length>10){
+      if (cv < 0.10) setQuality('good', 'q-good');
+      else if (cv < 0.22) setQuality('fair', 'q-ok');
+      else setQuality('unstable', 'q-bad');
+    }
+  } else {
+    lastRatio = null;
+    setQuality('eyes not clear', 'q-bad');
+  }
+}
+
+function setQuality(text, cls){
+  els.qual.textContent = text;
+  els.qual.className = 'quality ' + cls;
+}
+
+function measureBothEyes(lm, vw, vh){
+  const out = { ratio:null, eyes:[] };
+  const ratios = [];
+  for (const eye of [LEFT, RIGHT]){
+    const c = lm[eye[0]];
+    const cx = c.x*vw, cy = c.y*vh;
+    let r = 0;
+    for (let i=1;i<5;i++){
+      const p = lm[eye[i]];
+      r += Math.hypot(p.x*vw-cx, p.y*vh-cy);
+    }
+    r /= 4;
+    const pr = pupilFromCrop(cx, cy, r);
+    out.eyes.push({ cx, cy, irisR:r, pupilR: pr ? pr*r/(CROP/3) : null });
+    if (pr) ratios.push(pr / (CROP/3)); // pr in crop px; iris in crop px = CROP/3
+  }
+  if (ratios.length) out.ratio = ratios.reduce((a,b)=>a+b,0)/ratios.length;
+  return out;
+}
+
+// Crop eye region, isolate pupil via Otsu + flood fill from darkest center.
+// Returns pupil radius in CROP-canvas pixels (iris radius there is CROP/3).
+function pupilFromCrop(cx, cy, irisRpx){
+  const half = irisRpx * 1.5;
+  if (half < 4) return null;
+  try{
+    cctx.drawImage(video, cx-half, cy-half, half*2, half*2, 0, 0, CROP, CROP);
+  }catch(e){ return null; }
+  const img = cctx.getImageData(0,0,CROP,CROP);
+  const d = img.data;
+  const irisR = CROP/3;          // iris radius in crop space
+  const inner = irisR * 0.92;    // pupil cannot exceed iris
+  const cc = CROP/2;
+  // grayscale + collect in-circle values for Otsu
+  const gray = new Float32Array(CROP*CROP);
+  const inside = new Uint8Array(CROP*CROP);
+  const hist = new Array(256).fill(0);
+  let count = 0;
+  for (let y=0;y<CROP;y++){
+    for (let x=0;x<CROP;x++){
+      const idx = y*CROP+x;
+      const dist = Math.hypot(x-cc, y-cc);
+      const g = 0.2126*d[idx*4]+0.7152*d[idx*4+1]+0.0722*d[idx*4+2];
+      gray[idx] = g;
+      if (dist <= inner){ inside[idx]=1; hist[Math.min(255,g|0)]++; count++; }
+    }
+  }
+  if (count < 50) return null;
+  const thr = otsu(hist, count);
+  // seed = darkest pixel near center
+  let seed=-1, seedVal=1e9;
+  for (let y=cc-6;y<cc+6;y++) for (let x=cc-6;x<cc+6;x++){
+    const idx=y*CROP+x;
+    if (inside[idx] && gray[idx]<seedVal){ seedVal=gray[idx]; seed=idx; }
+  }
+  if (seed<0) return null;
+  // flood fill over dark (<=thr) connected to seed
+  const stack=[seed];
+  const seen=new Uint8Array(CROP*CROP);
+  seen[seed]=1; let area=0;
+  while(stack.length){
+    const idx=stack.pop();
+    if(!inside[idx] || gray[idx]>thr) continue;
+    area++;
+    const x=idx%CROP, y=(idx/CROP)|0;
+    const nb=[idx-1,idx+1,idx-CROP,idx+CROP];
+    if(x>0 && !seen[idx-1]){seen[idx-1]=1;stack.push(idx-1);}
+    if(x<CROP-1 && !seen[idx+1]){seen[idx+1]=1;stack.push(idx+1);}
+    if(y>0 && !seen[idx-CROP]){seen[idx-CROP]=1;stack.push(idx-CROP);}
+    if(y<CROP-1 && !seen[idx+CROP]){seen[idx+CROP]=1;stack.push(idx+CROP);}
+  }
+  if (area < 8) return null;
+  return Math.sqrt(area/Math.PI); // equivalent-circle pupil radius (crop px)
+}
+
+function otsu(hist, total){
+  let sum=0; for(let i=0;i<256;i++) sum+=i*hist[i];
+  let sumB=0, wB=0, max=-1, thr=0;
+  for(let i=0;i<256;i++){
+    wB+=hist[i]; if(!wB) continue;
+    const wF=total-wB; if(!wF) break;
+    sumB+=i*hist[i];
+    const mB=sumB/wB, mF=(sum-sumB)/wF;
+    const between=wB*wF*(mB-mF)*(mB-mF);
+    if(between>max){max=between;thr=i;}
+  }
+  return thr;
+}
+
+// ---------- Overlay ----------
+function drawOverlay(m){
+  const ow=els.overlay.width, oh=els.overlay.height;
+  octx.save();
+  octx.clearRect(0,0,ow,oh);
+  if (video && video.videoWidth){
+    // mirror for natural feel
+    octx.translate(ow,0); octx.scale(-1,1);
+    octx.drawImage(video,0,0,ow,oh);
+    if (m && m.eyes){
+      const sx=ow/video.videoWidth, sy=oh/video.videoHeight;
+      for (const e of m.eyes){
+        octx.lineWidth=1.5;
+        octx.strokeStyle='#3ddc84';
+        octx.beginPath();
+        octx.arc(e.cx*sx, e.cy*sy, e.irisR*sx, 0, 7); octx.stroke();
+        if (e.pupilR){
+          octx.strokeStyle='#ff4fd8';
+          octx.beginPath();
+          octx.arc(e.cx*sx, e.cy*sy, e.pupilR*sx, 0, 7); octx.stroke();
+        }
+      }
+    }
+  }
+  octx.restore();
+}
+
+// ---------- Run session ----------
+function updateRunState(){
+  const ready = images.length>0 && landmarker;
+  els.run.disabled = !ready;
+  els.runHint.textContent = ready
+    ? `${images.length} image(s) ready.`
+    : (!landmarker ? 'Enable the camera first.' : 'Add at least one image.');
+}
+
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+els.abort.addEventListener('click', ()=>{ aborted=true; });
+
+els.run.addEventListener('click', async ()=>{
+  if (running) return;
+  running = true; aborted=false;
+  els.resultsCard.classList.add('hidden');
+  els.run.disabled = true;
+
+  const durMs   = clamp(parseFloat(els.dur.value),0.5,30)*1000;
+  const isiMs   = clamp(parseFloat(els.isi.value),0,20)*1000;
+  const calibMs = clamp(parseFloat(els.calib.value),2,30)*1000;
+
+  showStage(true);
+
+  // Calibration on neutral gray
+  els.fixation.style.display='flex';
+  els.stageInfo.style.display='block';
+  els.stageInfo.textContent='Calibrating… relax and look at the +';
+  const baseSamples = await collect(calibMs);
+  els.fixation.style.display='none';
+  const baseline = robustMean(baseSamples);
+
+  const results = [];
+  for (let i=0;i<images.length && !aborted;i++){
+    // rest
+    if (isiMs>0){
+      els.stageImg.classList.add('hidden');
+      els.fixation.style.display='flex';
+      els.stageInfo.textContent='Rest…';
+      await collect(isiMs);
+      els.fixation.style.display='none';
+    }
+    if (aborted) break;
+    // show image
+    els.stageImg.src = images[i].url;
+    els.stageImg.classList.remove('hidden');
+    els.stageInfo.textContent = `Image ${i+1} of ${images.length}`;
+    const samples = await collect(durMs);
+    const mean = robustMean(samples);
+    results.push({
+      ...images[i],
+      mean,
+      n: samples.length,
+      dilation: baseline ? (mean-baseline)/baseline*100 : null
+    });
+  }
+
+  showStage(false);
+  running=false;
+  els.run.disabled=false;
+  if (!aborted) renderResults(baseline, results);
+  else els.runHint.textContent='Session stopped.';
+});
+
+// Collect pupil ratio samples for a duration (uses live detection loop output)
+async function collect(ms){
+  const samples=[];
+  const t0=performance.now();
+  while(performance.now()-t0 < ms && !aborted){
+    if (lastRatio) {
+      samples.push(lastRatio);
+      els.liveRatio.textContent = lastRatio.toFixed(3);
+    }
+    await sleep(40); // ~25 Hz sampling
+  }
+  return samples;
+}
+
+function robustMean(arr){
+  if (!arr.length) return null;
+  const s=[...arr].sort((a,b)=>a-b);
+  // trim 15% tails to reject blinks/glitches
+  const k=Math.floor(s.length*0.15);
+  const core=s.slice(k, s.length-k);
+  const use=core.length?core:s;
+  return use.reduce((a,b)=>a+b,0)/use.length;
+}
+
+function showStage(on){
+  els.stage.style.display = on?'flex':'none';
+  els.abort.style.display = on?'inline-flex':'none';
+  els.stageInfo.style.display = on?'block':'none';
+  if(!on){ els.fixation.style.display='none'; els.stageImg.classList.remove('hidden'); }
+}
+
+function clamp(v,a,b){ v=isNaN(v)?a:v; return Math.max(a,Math.min(b,v)); }
+
+// ---------- Results ----------
+function renderResults(baseline, results){
+  els.resultsCard.classList.remove('hidden');
+  els.resultsCard.scrollIntoView({behavior:'smooth'});
+  const valid = results.filter(r=>r.mean!=null);
+  if (!valid.length){
+    els.resultsBody.innerHTML = '<p class="hint">No reliable pupil samples were captured. Improve lighting, sit closer, and confirm the magenta circle tracks your pupil, then try again.</p>';
+    return;
+  }
+  const ranked = [...valid].sort((a,b)=>b.dilation-a.dilation);
+  const maxAbs = Math.max(1, ...ranked.map(r=>Math.abs(r.dilation)));
+
+  let rows = ranked.map((r,i)=>{
+    const d = r.dilation;
+    const {label,color} = rateDilation(d);
+    const w = Math.abs(d)/maxAbs*100;
+    const pos = d>=0;
+    return `<tr>
+      <td>${i+1}</td>
+      <td><img class="rank-img" src="${r.url}" alt=""></td>
+      <td><span class="tag" style="background:${color}22;color:${color}">${label}</span></td>
+      <td class="num">${d>=0?'+':''}${d.toFixed(1)}%</td>
+      <td>
+        <div class="bar"><i style="width:${w}%;background:${color};margin-left:${pos?'50%':(50-w/2)+'%'}"></i></div>
+      </td>
+      <td class="num">${r.mean.toFixed(3)}</td>
+      <td class="num">${Math.round(r.brightness*100)}%</td>
+    </tr>`;
+  }).join('');
+
+  els.resultsBody.innerHTML = `
+    <p class="hint" style="margin-top:0">Baseline pupil/iris ratio: <b>${baseline?baseline.toFixed(3):'n/a'}</b>. Bars are centered: right = dilation, left = constriction.</p>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>#</th><th>Image</th><th>Response</th><th class="num">Dilation</th>
+        <th>Relative</th><th class="num">Mean ratio</th><th class="num">Img brightness</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div style="margin-top:14px"><button class="btn" id="again">Run again</button></div>
+  `;
+  document.getElementById('again').addEventListener('click', ()=>els.run.click());
+
+  // brightness-confound warning
+  const br = valid.map(r=>r.brightness);
+  if (Math.max(...br)-Math.min(...br) > 0.3){
+    els.resultsBody.insertAdjacentHTML('beforeend',
+      '<div class="note" style="margin-top:14px">Your images differ a lot in brightness. Some of the dilation differences are likely the pupil reacting to light, not to image content. For cleaner results, compare images of similar brightness.</div>');
+  }
+}
+
+function rateDilation(d){
+  if (d==null) return {label:'no data',color:'#9aa0b0'};
+  if (d >=  12) return {label:'strong dilation',  color:'#3ddc84'};
+  if (d >=   5) return {label:'moderate dilation',color:'#7bd88f'};
+  if (d >=   2) return {label:'slight dilation',  color:'#bfe6c5'};
+  if (d >   -2) return {label:'neutral',          color:'#9aa0b0'};
+  if (d >   -5) return {label:'slight constrict', color:'#ffd1a3'};
+  if (d >  -12) return {label:'moderate constrict',color:'#ffb454'};
+  return {label:'strong constriction', color:'#ff6b6b'};
+}
+
+window.addEventListener('keydown', e=>{ if(e.key==='Escape') aborted=true; });
+</script>
+</body>
+</html>
